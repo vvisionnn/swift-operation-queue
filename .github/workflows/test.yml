@@ -19,13 +19,13 @@ jobs:
       matrix:
         platform:
           - name: 'iOS'
-            destination: 'generic/platform=iOS'
+            destination: 'platform=iOS Simulator,name=iPhone 15'
           - name: 'tvOS'
-            destination: 'generic/platform=tvOS'
+            destination: 'platform=tvOS Simulator,name=Apple TV'
           - name: 'watchOS'
-            destination: 'generic/platform=watchOS'
+            destination: 'platform=watchOS Simulator,name=Apple Watch Series 9 (45mm)'
           - name: 'visionOS'
-            destination: 'generic/platform=xrOS'
+            destination: 'platform=visionOS Simulator,name=Apple Vision Pro'
           - name: 'macOS'
             destination: 'platform=macOS'
     
