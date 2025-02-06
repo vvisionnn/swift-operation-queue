@@ -151,12 +151,12 @@ extension ConcurrentOperationQueue {
 
 		func start(_ completion: @escaping @Sendable () async -> Void) {
 			guard state.value == .notStarted else { return }
-			state.withValue({ $0 = .running })
+			state.withValue { $0 = .running }
 			task.value?.cancel()
 			task.withValue {
 				$0 = .init(operation: { [weak self] in
 					await self?.element.operation.rawValue()
-					self?.state.withValue({ $0 = .finished })
+					self?.state.withValue { $0 = .finished }
 					await completion()
 				})
 			}
@@ -164,7 +164,7 @@ extension ConcurrentOperationQueue {
 
 		func cancel() {
 			task.value?.cancel()
-			state.withValue({ $0 = .finished })
+			state.withValue { $0 = .finished }
 		}
 	}
 
