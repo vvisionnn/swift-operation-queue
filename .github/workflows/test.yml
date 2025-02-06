@@ -12,20 +12,20 @@ concurrency:
 
 jobs:
   test:
-    name: Test on ${{ matrix.platform }}
+    name: Test on ${{ matrix.platform.name }}
     runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
         platform:
           - name: 'iOS'
-            destination: 'platform=iOS Simulator,name=iPhone 15'
+            destination: 'generic/platform=iOS'
           - name: 'tvOS'
-            destination: 'platform=tvOS Simulator,name=Apple TV'
+            destination: 'generic/platform=tvOS'
           - name: 'watchOS'
-            destination: 'platform=watchOS Simulator,name=Apple Watch Series 9 (45mm)'
+            destination: 'generic/platform=watchOS'
           - name: 'visionOS'
-            destination: 'platform=visionOS Simulator,name=Apple Vision Pro'
+            destination: 'generic/platform=xrOS'
           - name: 'macOS'
             destination: 'platform=macOS'
     
