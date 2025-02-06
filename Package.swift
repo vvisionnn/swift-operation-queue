@@ -1,5 +1,4 @@
-// swift-tools-version: 5.9
-// The swift-tools-version declares the minimum version of Swift required to build this package.
+// swift-tools-version: 6.0
 
 import PackageDescription
 
@@ -28,17 +27,11 @@ let package = Package(
 				.product(name: "Tagged", package: "swift-tagged"),
 				.product(name: "OrderedCollections", package: "swift-collections"),
 				.product(name: "ConcurrencyExtras", package: "swift-concurrency-extras"),
-			],
-			swiftSettings: [
-				.enableUpcomingFeature("StrictConcurrency"),
 			]
 		),
 		.testTarget(
 			name: "OperationQueueTests",
-			dependencies: ["OperationQueue"],
-			swiftSettings: [
-				.enableUpcomingFeature("StrictConcurrency"),
-			]
+			dependencies: ["OperationQueue"]
 		),
 	]
 )

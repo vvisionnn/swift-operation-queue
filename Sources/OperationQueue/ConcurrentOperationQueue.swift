@@ -3,7 +3,7 @@ import Foundation
 import OrderedCollections
 import Tagged
 
-public final class ConcurrentOperationQueue<TaskIdentifier: Identifiable & Hashable>: OperationQueue {
+public final class ConcurrentOperationQueue<TaskIdentifier: Identifiable & Hashable & Sendable>: AsyncOperationQueue {
 	private let dispatchQueue = DispatchQueue(label: "operation-queue-\(UUID().uuidString)")
 	private let operations: LockIsolated<OrderedDictionary<Element.Identifier, Context>> = .init(.init())
 	private let maxConcurrentOperationCount: LockIsolated<Int>
@@ -137,35 +137,38 @@ extension ConcurrentOperationQueue {
 }
 
 extension ConcurrentOperationQueue {
-	final class Context {
+	final class Context: Sendable {
 		let element: Element
-		private(set) var state: State = .notStarted
-		private(set) var task: Task<Void, Never>?
+		let state: LockIsolated<State> = .init(.notStarted)
+		let task: LockIsolated<Task<Void, Never>?>
 
 		deinit { self.cancel() }
 
 		init(element: Element) {
 			self.element = element
+			self.task = .init(nil)
 		}
 
-		func start(_ completion: @escaping () async -> Void) {
-			guard state == .notStarted else { return }
-			state = .running
-			task?.cancel()
-			task = .init(operation: { [weak self] in
-				await self?.element.operation.rawValue()
-				self?.state = .finished
-				await completion()
-			})
+		func start(_ completion: @escaping @Sendable () async -> Void) {
+			guard state.value == .notStarted else { return }
+			state.withValue({ $0 = .running })
+			task.value?.cancel()
+			task.withValue {
+				$0 = .init(operation: { [weak self] in
+					await self?.element.operation.rawValue()
+					self?.state.withValue({ $0 = .finished })
+					await completion()
+				})
+			}
 		}
 
 		func cancel() {
-			task?.cancel()
-			state = .finished
+			task.value?.cancel()
+			state.withValue({ $0 = .finished })
 		}
 	}
 
-	final class Element: Identifiable {
+	final class Element: Identifiable, Sendable {
 		let id: Identifier
 		let operation: Operation
 
