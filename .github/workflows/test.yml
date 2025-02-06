@@ -1,0 +1,32 @@
+name: Test
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    name: Test on ${{ matrix.platform }}
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { name: 'iOS', destination: 'platform=iOS Simulator,name=iPhone 15' }
+          - { name: 'tvOS', destination: 'platform=tvOS Simulator,name=Apple TV' }
+          - { name: 'watchOS', destination: 'platform=watchOS Simulator,name=Apple Watch Series 9 (45mm)' }
+          - { name: 'visionOS', destination: 'platform=visionOS Simulator,name=Apple Vision Pro' }
+          - { name: 'macOS', destination: 'platform=macOS' }
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Test on ${{ matrix.platform.name }}
+        if: matrix.platform.name != 'macOS'
+        run: xcodebuild test -scheme swift-operation-queue -destination "${{ matrix.platform.destination }}"
+        
+      - name: Test on macOS
+        if: matrix.platform.name == 'macOS'
+        run: swift test -v 

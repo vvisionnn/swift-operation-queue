@@ -1,0 +1,32 @@
+name: Build
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    name: Build for ${{ matrix.platform.name }}
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { name: 'iOS', destination: 'generic/platform=iOS' }
+          - { name: 'tvOS', destination: 'generic/platform=tvOS' }
+          - { name: 'watchOS', destination: 'generic/platform=watchOS' }
+          - { name: 'visionOS', destination: 'generic/platform=xrOS' }
+          - { name: 'macOS', destination: 'platform=macOS' }
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build for ${{ matrix.platform.name }}
+        if: matrix.platform.name != 'macOS'
+        run: xcodebuild build -scheme swift-operation-queue -destination "${{ matrix.platform.destination }}"
+        
+      - name: Build for macOS
+        if: matrix.platform.name == 'macOS'
+        run: swift build -v 
