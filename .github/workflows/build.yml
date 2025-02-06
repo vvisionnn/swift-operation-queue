@@ -9,16 +9,21 @@ on:
 jobs:
   build:
     name: Build for ${{ matrix.platform.name }}
-    runs-on: macos-14
+    runs-on: macos-15
     strategy:
       fail-fast: false
       matrix:
         platform:
-          - { name: 'iOS', destination: 'generic/platform=iOS' }
-          - { name: 'tvOS', destination: 'generic/platform=tvOS' }
-          - { name: 'watchOS', destination: 'generic/platform=watchOS' }
-          - { name: 'visionOS', destination: 'generic/platform=xrOS' }
-          - { name: 'macOS', destination: 'platform=macOS' }
+          - name: 'iOS'
+            destination: 'generic/platform=iOS'
+          - name: 'tvOS'
+            destination: 'generic/platform=tvOS'
+          - name: 'watchOS'
+            destination: 'generic/platform=watchOS'
+          - name: 'visionOS'
+            destination: 'generic/platform=xrOS'
+          - name: 'macOS'
+            destination: 'platform=macOS'
     
     steps:
       - uses: actions/checkout@v4
