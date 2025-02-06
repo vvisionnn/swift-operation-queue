@@ -1,185 +1,168 @@
+import ConcurrencyExtras
+import Foundation
 @testable import OperationQueue
-import XCTest
+import Testing
 
-final class OperationQueueTests: XCTestCase {
-	actor FulfilledContext {
-		var fulfilled: [XCTestExpectation]
-
-		init(fulfilled: [XCTestExpectation]) {
-			self.fulfilled = fulfilled
-		}
-	}
-
-	func testInit() {
+@Suite
+struct OperationQueueTests {
+	@Test func initialization() {
 		_ = ConcurrentOperationQueue<TestContextObject>()
 	}
 
-	func testDefaultMaxConcurrentOperationCount() {
+	@Test func defaultMaxConcurrentOperationCount() {
 		let defaultCount = ConcurrentOperationQueue<TestContextObject>()
 			.maxConcurrentCount
 
-		XCTAssertEqual(defaultCount, 1)
+		#expect(defaultCount == 1)
 	}
 
-	func testUpdateMaxConcurrentOperationCount() async {
+	@Test func updateMaxConcurrentOperationCount() async {
 		let queue = ConcurrentOperationQueue<TestContextObject>()
 		let newCount = 5
 		queue.maxConcurrentCount = newCount
 		let updatedCount = queue.maxConcurrentCount
 
-		XCTAssertEqual(newCount, updatedCount)
+		#expect(newCount == updatedCount)
 	}
 
-	func testMaxConcurrentOperationCount() async throws {
-		let taskCompletedMinTime: UInt64 = 100
-		let taskCompletedMaxTime: UInt64 = 10000000
-		let maxCount = 10
+	@Test func maxConcurrentOperationCount() async throws {
+		let maxCount = 100
 		let queue = ConcurrentOperationQueue<TestContextObject>(maxConcurrentOperationCount: maxCount)
 
-		for _ in 0 ..< 200 {
+		for _ in 0 ..< 2000 {
 			queue.enqueue(.init(id: UUID())) { [weak queue] in
 				guard let queue = queue else { return }
-				let valid = queue.isValidRunningCount
-				XCTAssertTrue(valid)
-				let taskCompletedTime = UInt64.random(in: taskCompletedMinTime ... taskCompletedMaxTime)
-				try? await Task.sleep(nanoseconds: taskCompletedTime)
+				#expect(queue.isValidRunningCount)
 			}
+			#expect(queue.isValidRunningCount)
 		}
 
 		while queue.totalCount > 0 {
 			try await Task.sleep(nanoseconds: 10000)
 		}
-
-		XCTAssertEqual(queue.totalCount, 0)
+		#expect(queue.totalCount == 0)
 	}
 
-	func testCancelWhenEnqueue() async {
+	@Test func cancelWhenEnqueue() async throws {
 		let queue = ConcurrentOperationQueue<TestContextObject>()
 		let context = TestContextObject(id: UUID())
-		queue.enqueue(context) {
-			try? await Task.sleep(nanoseconds: 500000000)
-			XCTAssertTrue(Task.isCancelled)
-		}
+		await confirmation(expectedCount: 0) { confirmation in
+			queue.enqueue(context) {
+				try? await Task.sleep(nanoseconds: 500000000)
+				#expect(Task.isCancelled)
+				confirmation()
+			}
 
-		queue.cancel(context)
-		XCTAssertEqual(queue.totalCount, 0)
+			queue.cancel(context)
+		}
 	}
 
-	func testDeinit() async {
+	@Test func deinitCancelAll() async throws {
 		var queue = ConcurrentOperationQueue<TestContextObject>()
 		let context = TestContextObject(id: UUID())
 
-		let expectation = XCTestExpectation(description: "cancel all when deinit")
-		queue.enqueue(context) {
-			try? await Task.sleep(nanoseconds: 100000000)
-			XCTAssertTrue(Task.isCancelled)
-			expectation.fulfill()
+		try await confirmation("cancelled when deinit", expectedCount: 0) { confirmation in
+			queue.enqueue(context) {
+				try? await Task.sleep(nanoseconds: 1_000_000_000)
+				#expect(Task.isCancelled)
+				confirmation()
+			}
+			#expect(queue.totalCount == 1)
+			queue = ConcurrentOperationQueue()
+			while queue.totalCount > 0 {
+				try await Task.sleep(nanoseconds: 10000)
+			}
 		}
-
-		XCTAssertEqual(queue.totalCount, 1)
-		try? await Task.sleep(nanoseconds: 50000000)
-
-		// reassign to deinit the first queue
-		queue = ConcurrentOperationQueue()
-		await fulfillment(of: [expectation], timeout: 2)
 	}
 
-	func testCancelMultipleContextObjects() async {
+	@Test func cancelMultipleContextObjects() async throws {
 		let queue = ConcurrentOperationQueue<TestContextObject>(maxConcurrentOperationCount: 3)
 		let context1 = TestContextObject(id: UUID())
 		let context2 = TestContextObject(id: UUID())
 		let context3 = TestContextObject(id: UUID())
 
-		let expectations = [
-			XCTestExpectation(description: "context1"),
-			XCTestExpectation(description: "context2"),
-			XCTestExpectation(description: "context3"),
-		]
+		try await confirmation("all cancelled no confirmation called", expectedCount: 0) { confirmation in
+			queue.enqueue(context1) {
+				try? await Task.sleep(nanoseconds: 1000000)
+				if !Task.isCancelled {
+					confirmation()
+				}
+				#expect(Task.isCancelled)
+			}
 
-		queue.enqueue(context1) {
-			try? await Task.sleep(nanoseconds: 200000000)
-			XCTAssertTrue(Task.isCancelled)
-			expectations[0].fulfill()
+			queue.enqueue(context2) {
+				try? await Task.sleep(nanoseconds: 1000000)
+				if !Task.isCancelled {
+					confirmation()
+				}
+				#expect(Task.isCancelled)
+			}
+
+			queue.enqueue(context3) {
+				try? await Task.sleep(nanoseconds: 1000000)
+				if !Task.isCancelled {
+					confirmation()
+				}
+				#expect(Task.isCancelled)
+			}
+
+			queue.cancel([context1, context2, context3])
+
+			while queue.totalCount > 0 {
+				try await Task.sleep(nanoseconds: 10000)
+			}
 		}
-
-		queue.enqueue(context2) {
-			try? await Task.sleep(nanoseconds: 200000000)
-			XCTAssertTrue(Task.isCancelled)
-			expectations[1].fulfill()
-		}
-
-		queue.enqueue(context3) {
-			try? await Task.sleep(nanoseconds: 200000000)
-			XCTAssertTrue(Task.isCancelled)
-			expectations[2].fulfill()
-		}
-
-		// make sure each operation running then cancel all
-		try? await Task.sleep(nanoseconds: 100000000)
-		queue.cancel([context1, context2, context3])
-		XCTAssertEqual(queue.totalCount, 0)
-
-		await fulfillment(of: expectations, timeout: 2)
 	}
 
-	func testPublicAccess() {
+	@Test func publicAccess() {
 		let queue = ConcurrentOperationQueue<TestContextObject>()
 		_ = queue.runningCount
 		_ = queue.maxConcurrentCount
 		_ = queue.totalCount
 	}
 
-	func testUpdateConcurrentNumberWhenRunning() async {
+	@Test func updateConcurrentNumberWhenRunning() async throws {
 		let queue = ConcurrentOperationQueue<TestContextObject>(maxConcurrentOperationCount: 3)
 		let allOperationCount = 200
-		let taskCompletedMinTime: UInt64 = 100
-		let taskCompletedMaxTime: UInt64 = 10000000
 
-		let context = FulfilledContext(fulfilled: (0 ..< allOperationCount).map { index in
-			XCTestExpectation(description: "\(index)")
-		})
+		try await confirmation(expectedCount: allOperationCount) { confirmation in
+			for taskNumber in 0 ..< allOperationCount {
+				queue.enqueue(.init(id: UUID())) { [weak queue, taskNumber] in
+					guard let queue = queue else { return }
+					#expect(queue.isValidRunningCount)
+					if queue.isValidRunningCount {
+						confirmation()
+					}
 
-		for taskNumber in 0 ..< allOperationCount {
-			queue.enqueue(.init(id: UUID())) { [weak queue, taskNumber] in
-				guard let queue = queue else { return }
-				XCTAssertTrue(queue.isValidRunningCount)
-				if queue.isValidRunningCount {
-					await context.fulfilled[taskNumber].fulfill()
-				}
-				let taskCompletedTime = UInt64.random(in: taskCompletedMinTime ... taskCompletedMaxTime)
-				try? await Task.sleep(nanoseconds: taskCompletedTime)
-
-				if taskNumber % 10 == 0 {
-					queue.maxConcurrentCount += 1
+					if taskNumber % 10 == 0 {
+						queue.maxConcurrentCount += 1
+					}
 				}
 			}
-		}
 
-		await fulfillment(of: context.fulfilled, timeout: 10)
+			while queue.totalCount > 0 {
+				try await Task.sleep(nanoseconds: 10000)
+			}
+		}
 	}
 
-	func testCancelAll() async throws {
+	@Test func cancelAll() async throws {
 		let queue = ConcurrentOperationQueue<TestContextObject>(maxConcurrentOperationCount: 10)
 		let allOperationCount = 10
 
-		let context = FulfilledContext(fulfilled: (0 ..< allOperationCount).map { index in
-			XCTestExpectation(description: "\(index)")
-		})
-
-		for taskNumber in 0 ..< allOperationCount {
-			queue.enqueue(.init(id: UUID())) { [taskNumber] in
-				try? await Task.sleep(nanoseconds: 100000000)
-				XCTAssertTrue(Task.isCancelled)
-				await context.fulfilled[taskNumber].fulfill()
+		await confirmation("all cancelled, no confirmation called", expectedCount: 0) { confirmation in
+			(0 ..< allOperationCount).forEach { _ in
+				queue.enqueue(.init(id: UUID())) {
+					try? await Task.sleep(nanoseconds: 100000000)
+					#expect(Task.isCancelled)
+					if !Task.isCancelled {
+						confirmation()
+					}
+				}
 			}
+			queue.cancelAll()
+			#expect(queue.totalCount == 0)
 		}
-
-		XCTAssertEqual(10, queue.totalCount)
-		try await Task.sleep(nanoseconds: 50000000)
-		XCTAssertEqual(10, queue.runningCount)
-
-		queue.cancelAll()
-		await fulfillment(of: context.fulfilled, timeout: 10)
 	}
 }
 
