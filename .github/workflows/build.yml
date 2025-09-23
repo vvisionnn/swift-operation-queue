@@ -25,7 +25,7 @@ jobs:
           - name: 'watchOS'
             destination: 'generic/platform=watchOS'
           - name: 'visionOS'
-            destination: 'generic/platform=xrOS'
+            destination: 'generic/platform=visionOS'
           - name: 'macOS'
             destination: 'platform=macOS'
     
