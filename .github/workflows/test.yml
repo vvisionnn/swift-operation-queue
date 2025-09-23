@@ -2,9 +2,9 @@ name: Test
 
 on:
   push:
-    branches: [ "master" ]
+    branches: ["master"]
   pull_request:
-    branches: [ "master" ]
+    branches: ["master"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -13,25 +13,25 @@ concurrency:
 jobs:
   test:
     name: Test on ${{ matrix.platform.name }}
-    runs-on: macos-15
+    runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
         platform:
-          - name: 'iOS'
-            destination: 'platform=iOS Simulator,name=iPhone 16,OS=latest'
-          - name: 'tvOS'
-            destination: 'platform=tvOS Simulator,name=Apple TV,OS=latest'
-          - name: 'watchOS'
-            destination: 'platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest'
-          - name: 'visionOS'
-            destination: 'platform=visionOS Simulator,name=Apple Vision Pro,OS=latest'
-          - name: 'macOS'
-            destination: 'platform=macOS'
-    
+          - name: "iOS"
+            destination: "generic/platform=iOS"
+          - name: "tvOS"
+            destination: "generic/platform=tvOS"
+          - name: "watchOS"
+            destination: "generic/platform=watchOS"
+          - name: "visionOS"
+            destination: "generic/platform=visionOS"
+          - name: "macOS"
+            destination: "platform=macOS"
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Cache SPM dependencies
         uses: actions/cache@v4
         with:
@@ -49,11 +49,11 @@ jobs:
           key: ${{ runner.os }}-xcode-${{ matrix.platform.name }}-${{ hashFiles('**/*.xcodeproj/project.pbxproj') }}
           restore-keys: |
             ${{ runner.os }}-xcode-${{ matrix.platform.name }}-
-      
+
       - name: Test on ${{ matrix.platform.name }}
         if: matrix.platform.name != 'macOS'
         run: xcodebuild test -scheme swift-operation-queue -destination "${{ matrix.platform.destination }}"
-        
+
       - name: Test on macOS
         if: matrix.platform.name == 'macOS'
-        run: swift test -v 
+        run: swift test -v
