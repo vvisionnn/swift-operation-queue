@@ -17,7 +17,11 @@ public final class ConcurrentOperationQueue<TaskIdentifier: Identifiable & Hasha
 		self.maxConcurrentOperationCount = .init(maxConcurrentOperationCount)
 	}
 
-	public func enqueue(_ identifiable: TaskIdentifier, operation: @escaping Action) {
+	public func enqueue(
+		_ identifiable: TaskIdentifier,
+		operation: @escaping Action,
+		onCancel: CancelAction? = nil
+	) {
 		dispatchQueue.async {
 			defer { self.check() }
 
@@ -33,7 +37,8 @@ public final class ConcurrentOperationQueue<TaskIdentifier: Identifiable & Hasha
 						operation: .init(rawValue: { [weak self] in
 							await operation()
 							self?.check()
-						})
+						}),
+						onCancel: onCancel
 					)
 				)
 			}
@@ -163,18 +168,26 @@ extension ConcurrentOperationQueue {
 		}
 
 		func cancel() {
+			guard state.value != .finished else { return }
+			defer { state.withValue { $0 = .finished } }
 			task.value?.cancel()
-			state.withValue { $0 = .finished }
+			element.onCancel?()
 		}
 	}
 
 	final class Element: Identifiable, Sendable {
 		let id: Identifier
 		let operation: Operation
+		let onCancel: (@Sendable () -> Void)?
 
-		init(identifier: Identifier, operation: Operation) {
+		init(
+			identifier: Identifier,
+			operation: Operation,
+			onCancel: (@Sendable () -> Void)? = nil
+		) {
 			self.id = identifier
 			self.operation = operation
+			self.onCancel = onCancel
 		}
 	}
 }
