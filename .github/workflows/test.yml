@@ -24,8 +24,8 @@ jobs:
             destination: "platform=tvOS Simulator,name=Apple TV"
           - name: "watchOS"
             destination: "platform=watchOS Simulator,name=Apple Watch Series 10 (46mm)"
-          - name: "visionOS"
-            destination: "platform=visionOS Simulator,name=Apple Vision Pro"
+          # - name: "visionOS"
+          #   destination: "platform=visionOS Simulator,name=Apple Vision Pro"
           - name: "macOS"
             destination: "platform=macOS"
 
