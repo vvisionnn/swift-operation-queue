@@ -12,3 +12,9 @@ public protocol OperationQueue: Sendable {
 }
 
 public typealias AsyncOperationQueue = OperationQueue
+
+extension OperationQueue {
+	public func enqueue(_ identifiable: TaskIdentifier, operation: @escaping Action, onCancel: CancelAction? = nil) {
+		enqueue(identifiable, operation: operation, onCancel: onCancel)
+	}
+}
