@@ -1,16 +1,18 @@
 import ConcurrencyExtras
-import Foundation
 import OrderedCollections
 import Tagged
 
 public final class ConcurrentOperationQueue<TaskIdentifier: Identifiable & Hashable & Sendable>: AsyncOperationQueue {
-	private let dispatchQueue = DispatchQueue(label: "operation-queue-\(UUID().uuidString)")
 	private let operations: LockIsolated<OrderedDictionary<Element.Identifier, Context>> = .init(.init())
 	private let maxConcurrentOperationCount: LockIsolated<Int>
 
 	deinit {
-		self.operations.values.forEach { $0.cancel() }
-		self.operations.withValue { $0.removeAll() }
+		let contexts = self.operations.withValue { ops -> [Context] in
+			let all = Array(ops.values)
+			ops.removeAll()
+			return all
+		}
+		contexts.forEach { $0.cancel() }
 	}
 
 	public init(maxConcurrentOperationCount: Int = 1) {
@@ -22,116 +24,100 @@ public final class ConcurrentOperationQueue<TaskIdentifier: Identifiable & Hasha
 		operation: @escaping Action,
 		onCancel: CancelAction? = nil
 	) {
-		dispatchQueue.async {
-			defer { self.check() }
+		let identifier = Element.Identifier(identifiable)
 
-			// check and return if operation already exists
-			let identifider = Element.Identifier(identifiable)
-			guard self.operations.value.notExists(identifider) else { return }
-
-			// do real enqueue operation
-			self.operations.withValue { operations in
-				operations[identifider] = .init(
-					element: .init(
-						identifier: identifider,
-						operation: .init(rawValue: { [weak self] in
-							await operation()
-							self?.check()
-						}),
-						onCancel: onCancel
-					)
+		let inserted = self.operations.withValue { operations -> Bool in
+			guard operations.notExists(identifier) else { return false }
+			operations[identifier] = .init(
+				element: .init(
+					identifier: identifier,
+					operation: .init(rawValue: { [weak self] in
+						await operation()
+						self?.check()
+					}),
+					onCancel: onCancel
 				)
-			}
+			)
+			return true
+		}
+
+		if inserted {
+			check()
 		}
 	}
 
 	public func cancel(_ identifiable: TaskIdentifier) {
-		dispatchQueue.async {
-			defer { self.check() }
-			let identifier = Element.Identifier(identifiable)
-			self.operations[identifier]?.cancel()
-			_ = self.operations.withValue {
-				$0.removeValue(forKey: identifier)
-			}
-		}
+		let identifier = Element.Identifier(identifiable)
+		let context = self.operations.withValue { $0.removeValue(forKey: identifier) }
+		context?.cancel()
+		check()
 	}
 
 	public func cancel(_ identifiables: [TaskIdentifier]) {
-		dispatchQueue.async {
-			defer { self.check() }
+		let contexts = self.operations.withValue { ops in
 			identifiables
 				.map(Element.Identifier.init(rawValue:))
-				.forEach { key in
-					self.operations[key]?.cancel()
-					_ = self.operations.withValue { $0.removeValue(forKey: key) }
-				}
+				.compactMap { ops.removeValue(forKey: $0) }
 		}
+		contexts.forEach { $0.cancel() }
+		check()
 	}
 
 	public func cancelAll() {
-		dispatchQueue.async {
-			defer { self.check() }
-			self.operations.values.forEach { $0.cancel() }
-			self.operations.withValue { $0.removeAll() }
+		let contexts = self.operations.withValue { ops -> [Context] in
+			let all = Array(ops.values)
+			ops.removeAll()
+			return all
 		}
+		contexts.forEach { $0.cancel() }
 	}
 
 	private func check() {
-		// do async operation for check or may leads some deadlock problem
-		dispatchQueue.async {
-			self.operations.withValue {
-				$0.removeAll(where: \.value.state.isFinished)
-			}
+		let maxCount = self.maxConcurrentOperationCount.value
 
-			let runningCount = self.operations.value.filter(\.value.state.isRunning).count
-			guard runningCount < self.maxConcurrentOperationCount.value else { return }
+		let toStart = self.operations.withValue { ops -> [Context] in
+			ops.removeAll(where: \.value.state.isFinished)
 
-			// start the rest operations
-			let restCount = max(0, self.maxConcurrentOperationCount.value - runningCount)
-			self.operations.value.filter(\.value.state.isNotStarted)
-				.prefix(restCount)
-				.map(\.value)
-				.forEach { $0.start { [weak self] in self?.check() } }
+			let runningCount = ops.filter(\.value.state.isRunning).count
+			guard runningCount < maxCount else { return [] }
+
+			let slots = max(0, maxCount - runningCount)
+			let result = Array(
+				ops.filter(\.value.state.isNotStarted)
+					.prefix(slots)
+					.map(\.value)
+			)
 
 			#if DEBUG
-			assert(
-				self.operations.value.filter(\.value.state.isRunning).count
-					<= self.maxConcurrentOperationCount.value
-			)
+			assert(runningCount + result.count <= maxCount)
 			#endif
+
+			return result
 		}
+
+		toStart.forEach { $0.start { [weak self] in self?.check() } }
 	}
 }
 
-// Public access, all should be wrap in sync operation
-// and shouldn't be used in any internal/private operation
 extension ConcurrentOperationQueue {
 	public var maxConcurrentCount: Int {
-		get { dispatchQueue.sync { self.maxConcurrentOperationCount.value } }
-		set { dispatchQueue.sync { self.maxConcurrentOperationCount.setValue(newValue) } }
+		get { self.maxConcurrentOperationCount.value }
+		set { self.maxConcurrentOperationCount.setValue(newValue) }
 	}
 
 	public var totalCount: Int {
-		dispatchQueue.sync {
-			self.operations.count
-		}
+		self.operations.count
 	}
 
 	public var runningCount: Int {
-		dispatchQueue.sync {
-			self.operations.value
-				.filter(\.value.state.isRunning)
-				.count
-		}
+		self.operations.value.filter(\.value.state.isRunning).count
 	}
 
 	public var isValidRunningCount: Bool {
-		dispatchQueue.sync {
-			let runningCount = self.operations.value.filter(\.value.state.isRunning).count
-			let maxConcurrentOperationCount = self.maxConcurrentOperationCount.value
-			assert(runningCount <= maxConcurrentOperationCount)
-			return runningCount <= maxConcurrentOperationCount
-		}
+		let runningCount = self.operations.value.filter(\.value.state.isRunning).count
+		let maxConcurrentOperationCount = self.maxConcurrentOperationCount.value
+		assert(runningCount <= maxConcurrentOperationCount)
+		return runningCount <= maxConcurrentOperationCount
 	}
 }
 
@@ -144,33 +130,43 @@ extension ConcurrentOperationQueue {
 extension ConcurrentOperationQueue {
 	final class Context: Sendable {
 		let element: Element
-		let state: LockIsolated<State> = .init(.notStarted)
-		let task: LockIsolated<Task<Void, Never>?>
+
+		struct Runtime: Sendable {
+			var state: State = .notStarted
+			var task: Task<Void, Never>?
+		}
+
+		private let runtime: LockIsolated<Runtime> = .init(.init())
+
+		/// Computed accessor for key-path compatibility (e.g. `\.value.state.isRunning`).
+		var state: State { runtime.value.state }
 
 		deinit { self.cancel() }
 
 		init(element: Element) {
 			self.element = element
-			self.task = .init(nil)
 		}
 
 		func start(_ completion: @escaping @Sendable () async -> Void) {
-			guard state.value == .notStarted else { return }
-			state.withValue { $0 = .running }
-			task.value?.cancel()
-			task.withValue {
-				$0 = .init(operation: { [weak self] in
+			runtime.withValue { rt in
+				guard rt.state == .notStarted else { return }
+				rt.state = .running
+				rt.task = .init(operation: { [weak self] in
 					await self?.element.operation.rawValue()
-					self?.state.withValue { $0 = .finished }
+					self?.runtime.withValue { $0.state = .finished }
 					await completion()
 				})
 			}
 		}
 
 		func cancel() {
-			guard state.value != .finished else { return }
-			defer { state.withValue { $0 = .finished } }
-			task.value?.cancel()
+			let shouldCancel = runtime.withValue { rt -> Bool in
+				guard rt.state != .finished else { return false }
+				rt.state = .finished
+				rt.task?.cancel()
+				return true
+			}
+			guard shouldCancel else { return }
 			element.onCancel?()
 		}
 	}
